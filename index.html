@@ -1,0 +1,331 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Drowsify Detect</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .title-3d {
+      font-size: 2.5rem;
+      font-weight: bold;
+      color: #1e40af;
+      text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3), -2px -2px 4px rgba(255, 255, 255, 0.3);
+      transform: perspective(500px) rotateX(20deg);
+      transition: transform 0.3s;
+    }
+    .title-3d:hover {
+      transform: perspective(500px) rotateX(0deg);
+    }
+    .subtitle-3d {
+      font-size: 1.25rem;
+      color: #4b5563;
+      text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.2);
+      transform: perspective(500px) rotateX(15deg);
+    }
+    #logContainer {
+      max-height: 200px;
+      overflow-y: auto;
+      scrollbar-width: thin;
+    }
+    .log-entry:hover {
+      background-color: rgba(0, 0, 0, 0.05);
+    }
+    footer {
+      position: fixed;
+      bottom: 0;
+      width: 100%;
+      background-color: #1f2937;
+      color: white;
+      text-align: center;
+      padding: 1rem 0;
+      font-size: 0.9rem;
+    }
+    footer p {
+      margin: 0.25rem 0;
+    }
+  </style>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 flex flex-col items-center min-h-screen transition-colors duration-300">
+  <div class="text-center mt-4">
+    <h1 class="title-3d">Drowsify Detect</h1>
+    <p class="subtitle-3d">Real-Time Drowsiness Detection for Safety</p>
+  </div>
+  <div class="flex flex-col md:flex-row gap-4 mt-4 w-full max-w-4xl">
+    <div class="flex-1 flex flex-col items-center">
+      <div class="flex flex-wrap gap-2 mb-4 justify-center">
+        <button id="startCamera" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Start Camera</button>
+        <input type="file" id="videoUpload" accept="video/*" class="hidden">
+        <label for="videoUpload" class="bg-green-500 text-white px-4 py-2 rounded cursor-pointer hover:bg-green-600">Upload Video</label>
+        <button id="pauseResume" class="bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600" disabled>Pause</button>
+        <button id="captureScreenshot" class="bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600" disabled>Capture Screenshot</button>
+      </div>
+      <canvas id="canvas" class="border-2 border-gray-300 dark:border-gray-600 w-full max-w-lg"></canvas>
+      <div class="flex gap-2 mt-4">
+        <label class="flex items-center">
+          <input type="checkbox" id="alarmToggle" checked class="mr-2">
+          <span class="text-gray-700 dark:text-gray-300">Enable Alarm</span>
+        </label>
+        <button id="themeToggle" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600">Toggle Dark Mode</button>
+      </div>
+      <p id="status" class="mt-4 text-lg font-semibold text-gray-700 dark:text-gray-300"></p>
+      <p id="fps" class="mt-2 text-sm text-gray-600 dark:text-gray-400"></p>
+      <p id="confidence" class="mt-2 text-sm text-gray-600 dark:text-gray-400"></p>
+    </div>
+    <div class="flex-1 flex flex-col">
+      <h2 class="text-xl font-semibold text-gray-700 dark:text-gray-300">Drowsiness History</h2>
+      <div id="logContainer" class="bg-white dark:bg-gray-800 p-4 rounded shadow mt-2 w-full">
+        <div class="grid grid-cols-3 gap-2 font-semibold text-gray-700 dark:text-gray-300 border-b pb-1">
+          <span>Timestamp</span>
+          <span>Message</span>
+          <span>Frame Count</span>
+        </div>
+      </div>
+      <button id="downloadLog" class="bg-indigo-500 text-white px-4 py-2 rounded mt-2 hover:bg-indigo-600">Download History (CSV)</button>
+    </div>
+  </div>
+  <footer>
+    <p>Powered by Drowsify Detect Company | Made by Mohamed Arshad Ahamed T and Abishek P</p>
+    <p>MSEC, Chennai</p>
+  </footer>
+  <audio id="alarm" src="https://example.com/80s-alarm-clock-sound.mp3" preload="auto"></audio>
+
+  <script>
+    const video = document.createElement('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const statusText = document.getElementById('status');
+    const fpsText = document.getElementById('fps');
+    const confidenceText = document.getElementById('confidence');
+    const startCameraBtn = document.getElementById('startCamera');
+    const videoUpload = document.getElementById('videoUpload');
+    const pauseResumeBtn = document.getElementById('pauseResume');
+    const captureScreenshotBtn = document.getElementById('captureScreenshot');
+    const alarm = document.getElementById('alarm');
+    const alarmToggle = document.getElementById('alarmToggle');
+    const themeToggle = document.getElementById('themeToggle');
+    const logContainer = document.getElementById('logContainer');
+    const downloadLogBtn = document.getElementById('downloadLog');
+
+    let stream, alarmOn = false, isPaused = false, lastFrameTime = 0, frameCount = 0;
+    let logEntries = [];
+
+    function addLogEntry(message, frameCount) {
+      const timestamp = new Date().toLocaleString();
+      logEntries.push({ timestamp, message, frameCount });
+      const entry = document.createElement('div');
+      entry.className = 'log-entry grid grid-cols-3 gap-2 text-sm text-gray-600 dark:text-gray-400 py-1';
+      entry.innerHTML = `
+        <span>${timestamp}</span>
+        <span>${message}</span>
+        <span>${frameCount}</span>
+      `;
+      logContainer.appendChild(entry);
+      logContainer.scrollTop = logContainer.scrollHeight;
+    }
+
+    function downloadLog() {
+      const header = `"Drowsify Detect History","Powered by Drowsify Detect Company | Made by Mohamed Arshad Ahamed T and Abishek P, MSEC, Chennai"`;
+      const csv = [
+        header,
+        'Timestamp,Message,Frame Count',
+        ...logEntries.map(e => `"${e.timestamp}","${e.message}",${e.frameCount}`)
+      ].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'drowsiness_history.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function dataURLtoBlob(dataURL) {
+      const binary = atob(dataURL.split(',')[1]);
+      const array = [];
+      for (let i = 0; i < binary.length; i++) {
+        array.push(binary.charCodeAt(i));
+      }
+      return new Blob([new Uint8Array(array)], { type: 'image/jpeg' });
+    }
+
+    async function processFrame() {
+      if (isPaused || video.paused || video.ended) return;
+
+      const now = performance.now();
+      frameCount++;
+      if (now - lastFrameTime >= 1000) {
+        fpsText.textContent = `FPS: ${(frameCount / ((now - lastFrameTime) / 1000)).toFixed(2)}`;
+        frameCount = 0;
+        lastFrameTime = now;
+      }
+
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const frameData = canvas.toDataURL('image/jpeg', 0.8);
+      const formData = new FormData();
+      formData.append('frame', dataURLtoBlob(frameData));
+
+      try {
+        const response = await fetch('http://localhost:5000/process_frame', {
+          method: 'POST',
+          body: formData
+        });
+        const result = await response.json();
+
+        if (result.error) {
+          statusText.textContent = result.error;
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          requestAnimationFrame(processFrame);
+          return;
+        }
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = result.alert || result.count > 0 ? 'red' : 'green';
+        ctx.font = '16px Arial';
+        ctx.fillText(result.status, 10, 30);
+        addLogEntry(result.status, result.count);
+
+        if (result.confidence) {
+          confidenceText.textContent = `Confidence: Left Eye (${result.confidence.left_eye.toFixed(2)}%), Right Eye (${result.confidence.right_eye.toFixed(2)}%)`;
+        }
+
+        if (result.notification_sent) {
+          const notificationMessage = `Notification Sent: ${result.status}`;
+          ctx.fillStyle = 'blue';
+          ctx.font = '16px Arial';
+          ctx.fillText(notificationMessage, 10, 50);
+          addLogEntry(notificationMessage, result.count);
+        }
+
+        if (result.alert) {
+          ctx.fillStyle = 'red';
+          ctx.font = '20px Arial';
+          ctx.fillText('Drowsiness Alert!!!', 100, canvas.height - 20);
+          addLogEntry('Drowsiness Alert!!!', result.count);
+          if (!alarmOn && alarmToggle.checked) {
+            alarmOn = true;
+            alarm.play().catch(e => console.error('Alarm play error:', e));
+          }
+        } else if (result.count === 0) {
+          alarmOn = false;
+          if (alarmToggle.checked) {
+            alarm.pause();
+            alarm.currentTime = 0;
+          }
+        }
+      } catch (err) {
+        statusText.textContent = 'Error communicating with server: ' + err.message;
+      }
+
+      requestAnimationFrame(processFrame);
+    }
+
+    async function startCamera() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+        video.play();
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
+        pauseResumeBtn.disabled = false;
+        captureScreenshotBtn.disabled = false;
+        lastFrameTime = performance.now();
+        statusText.textContent = 'Processing video...';
+        processFrame();
+      } catch (err) {
+        statusText.textContent = 'Error accessing camera: ' + err.message;
+      }
+    }
+
+    function handleVideoUpload(event) {
+      const file = event.target.files[0];
+      if (file) {
+        if (stream) {
+          stream.getTracks().forEach(track => track.stop());
+        }
+        video.src = URL.createObjectURL(file);
+        video.play();
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
+        pauseResumeBtn.disabled = false;
+        captureScreenshotBtn.disabled = false;
+        lastFrameTime = performance.now();
+        statusText.textContent = 'Processing video...';
+        processFrame();
+      }
+    }
+
+    function togglePauseResume() {
+      isPaused = !isPaused;
+      pauseResumeBtn.textContent = isPaused ? 'Resume' : 'Pause';
+      if (!isPaused) processFrame();
+    }
+
+    function captureScreenshot() {
+      const link = document.createElement('a');
+      link.download = `drowsiness_screenshot_${new Date().toISOString()}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    }
+
+    function toggleTheme() {
+      document.body.classList.toggle('dark');
+      themeToggle.textContent = document.body.classList.contains('dark') ? 'Toggle Light Mode' : 'Toggle Dark Mode';
+    }
+
+    startCameraBtn.addEventListener('click', startCamera);
+    videoUpload.addEventListener('change', handleVideoUpload);
+    pauseResumeBtn.addEventListener('click', togglePauseResume);
+    captureScreenshotBtn.addEventListener('click', captureScreenshot);
+    themeToggle.addEventListener('click', toggleTheme);
+    downloadLogBtn.addEventListener('click', downloadLog);
+
+    video.addEventListener('loadedmetadata', () => {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+    });
+  </script>
+</body>
+</html>
