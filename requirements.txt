@@ -6,4 +6,3 @@ keras
 tensorflow
 twilio
 pygame
-threading
