@@ -4,7 +4,6 @@ numpy
 dlib
 keras
 tensorflow
-playsound
 twilio
 pygame
 threading
